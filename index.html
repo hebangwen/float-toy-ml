@@ -140,6 +140,22 @@
     </tr>
   </table>
 
+  <h2>16-bit (bfloat16)</h2>
+  <table>
+    <tr>
+      <td><span id="inputBF16" class="input"></span></td>
+      <td class="zerox-col"><span class="zerox">&nbsp;&nbsp;=&nbsp;&nbsp;0x</span></td>
+      <td class="output-col"><input id="hexBF16" class="output"></td>
+    </tr>
+  </table>
+  <table>
+    <tr>
+      <td><span id="helpBF16" class="help"></span></td>
+      <td>&nbsp;&nbsp;=&nbsp;&nbsp;</td>
+      <td class="hex-col"><input id="outputBF16" class="output"></td>
+    </tr>
+  </table>
+
   <h2>32-bit (float)</h2>
   <table>
     <tr>
@@ -181,10 +197,21 @@ const {Float16Array} = float16;
   function load(array, exponentBits, input, output, help, hex) {
     var bytes = new Uint8Array(array.buffer);
     var hexLength = bytes.length;
+    var isBF16 = array instanceof Uint16Array && exponentBits === 8; // 判断是否为 bfloat16
 
     function reduceNumber(x) {
-      var copy = bytes.length === 2 ? new Float16Array(1) : bytes.length === 4 ? new Float32Array(1) : new Float64Array(1);
-      copy[0] = +x;
+      var copy;
+      if (isBF16) {
+        copy = new Float32Array(1);
+        var bf16_bytes = toBfloat16Bytes(x);
+        var uint32 = (bf16_bytes[0] << 24) | (bf16_bytes[1] << 16);
+        new Uint32Array(copy.buffer)[0] = uint32;
+      } else {
+        copy = bytes.length === 2 ? new Float16Array(1) : bytes.length === 4 ? new Float32Array(1) : new Float64Array(1);
+        copy[0] = +x;
+      }
+      // var copy = bytes.length === 2 ? new Float16Array(1) : bytes.length === 4 ? new Float32Array(1) : new Float64Array(1);
+      // copy[0] = +x;
       var value = copy[0];
       x = value === 0 && 1 / value === -Infinity ? '-0' : value + '';
 
@@ -305,7 +332,15 @@ const {Float16Array} = float16;
       output.select();
     };
     output.oninput = function () {
-      array[0] = extractNumber();
+      if (isBF16) {
+        var x = extractNumber();
+        var bf16_bytes = toBfloat16Bytes(x);
+        var uint16 = (bf16_bytes[0] << 8) | bf16_bytes[1];
+        array[0] = uint16;
+      } else {
+        array[0] = extractNumber();
+      }
+      // array[0] = extractNumber();
       render();
     };
     output.onblur = function () {
@@ -384,7 +419,16 @@ const {Float16Array} = float16;
 
       // Figure out fraction
       var copyBytes = new Uint8Array(bytes);
-      var copy = bytes.length === 2 ? new Float16Array(copyBytes.buffer) : bytes.length === 4 ? new Float32Array(copyBytes.buffer) : new Float64Array(copyBytes.buffer);
+      var copy;
+      if (isBF16) {
+        var uint32 = (copyBytes[0] << 24) | (copyBytes[1] << 16);
+        var tmpArray = new Uint32Array(1);
+        tmpArray[0] = uint32;
+        copy = new Float32Array(tmpArray.buffer);
+      } else {
+        copy = bytes.length === 2 ? new Float16Array(copyBytes.buffer) : bytes.length === 4 ? new Float32Array(copyBytes.buffer) : new Float64Array(copyBytes.buffer);
+      }
+      // var copy = bytes.length === 2 ? new Float16Array(copyBytes.buffer) : bytes.length === 4 ? new Float32Array(copyBytes.buffer) : new Float64Array(copyBytes.buffer);
       for (var i = 0; i < exponentBits; i++) {
         var index = 1 + i;
         var byteIndex = bytes.length - (index >> 3) - 1;
@@ -405,13 +449,31 @@ const {Float16Array} = float16;
 
       // Update views according to which input was edited
       if (document.activeElement === hex) {
-        var value = array[0];
+        // var value = array[0];
+        var value;
+        if (isBF16) {
+          var uint32 = (bytes[0] << 24) | (bytes[1] << 16);
+          var float32 = new Float32Array(1);
+          new Uint32Array(float32.buffer)[0] = uint32;
+          value = float32[0];
+        } else {
+          value = array[0];
+        }
         output.value = reduceNumber(value === 0 && 1 / value === -Infinity ? '-0' : value);
       } else if (document.activeElement === output) {
         var tmpBytes = bytes.slice().reverse();
         hex.value = toHexString(tmpBytes);
       } else { // This branch is for when the individual bits get toggled
-        var value = array[0];
+        // var value = array[0];
+        var value;
+        if (isBF16) {
+          var uint32 = (bytes[0] << 24) | (bytes[1] << 16);
+          var float32 = new Float32Array(1);
+          new Uint32Array(float32.buffer)[0] = uint32;
+          value = float32[0];
+        } else {
+          value = array[0];
+        }
         output.value = reduceNumber(value === 0 && 1 / value === -Infinity ? '-0' : value);
         var tmpBytes = bytes.slice().reverse();
         hex.value = toHexString(tmpBytes);
@@ -448,6 +510,23 @@ const {Float16Array} = float16;
   load(new Float16Array([Math.PI]), 5, document.getElementById('input16'), document.getElementById('output16'), document.getElementById('help16'), document.getElementById('hex16'));
   load(new Float32Array([Math.PI]), 8, document.getElementById('input32'), document.getElementById('output32'), document.getElementById('help32'), document.getElementById('hex32'));
   load(new Float64Array([Math.PI]), 11, document.getElementById('input64'), document.getElementById('output64'), document.getElementById('help64'), document.getElementById('hex64'));
+
+  // 辅助函数：将数值转换为 bfloat16 的字节
+  function toBfloat16Bytes(x) {
+    var float32 = new Float32Array(1);
+    float32[0] = x;
+    var uint32 = new Uint32Array(float32.buffer)[0];
+    var high16 = (uint32 >> 16) & 0xFFFF;
+    return new Uint8Array([(high16 >> 8) & 0xFF, high16 & 0xFF]);
+  }
+
+  // 初始化 bfloat16 的初始值
+  var initialBF16Bytes = toBfloat16Bytes(Math.PI);
+  var initialBF16 = new Uint16Array(1);
+  initialBF16[0] = (initialBF16Bytes[0] << 8) | initialBF16Bytes[1];
+
+  // 修改后的 load 调用部分
+  load(initialBF16, 8, document.getElementById('inputBF16'), document.getElementById('outputBF16'), document.getElementById('helpBF16'), document.getElementById('hexBF16'));
 
 })();
 

@@ -560,10 +560,16 @@ const {Float16Array} = float16;
     html += '<tr>';
     for (var i = 0; i < totalBits; i++) {
       var bitIndex = totalBits - i;
+      var suffix = '';
+      // For FP4/MXFP4 1-byte layout, add element label
+      if ((isFormat === 'fp4' || isFormat === 'mxfp4') && bytes.length <= 2) {
+        var elemNum = (i < 4) ? 'E2' : 'E1';
+        suffix = '<span style="font-size:9px;color:#999;">' + elemNum + '</span>';
+      }
       if (i % 4 >= 2) {
-        html += '<td class="nibble">' + bitIndex + '</td>';
+        html += '<td class="nibble">' + bitIndex + suffix + '</td>';
       } else {
-        html += '<td class="dark nibble">' + bitIndex + '</td>';
+        html += '<td class="dark nibble">' + bitIndex + suffix + '</td>';
       }
     }
     html += '</tr>';
@@ -812,22 +818,7 @@ const {Float16Array} = float16;
         var mantVal = highNibble & 0x01;
         var expRealHigh = expVal === 0 ? 1 - 1 : expVal - 1;
 
-        // Also add element labels (once only)
-        // Use insertAdjacentHTML instead of innerHTML on <tr> to avoid DOM parse errors
-        if (!input.querySelector('tr.elem-labels')) {
-          var labelHtml = '';
-          for (var i = 0; i < totalBits; i++) {
-            var labelText = '';
-            if (i < 4) {
-              labelText = 'E2';
-            } else {
-              labelText = 'E1';
-            }
-            labelHtml += '<td class="nibble" style="font-size:9px;line-height:10px;">' + labelText + '</td>';
-          }
-          input.querySelector('table tr:first-child').insertAdjacentHTML('beforebegin',
-            '<tr class="elem-labels">' + labelHtml + '</tr>');
-        }
+        // Element labels are shown inline in the bit position row
 
         help.innerHTML =
           '<span style="font-size:12px;">E2: </span>' +

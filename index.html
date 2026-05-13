@@ -813,8 +813,9 @@ const {Float16Array} = float16;
         var expRealHigh = expVal === 0 ? 1 - 1 : expVal - 1;
 
         // Also add element labels (once only)
+        // Use insertAdjacentHTML instead of innerHTML on <tr> to avoid DOM parse errors
         if (!input.querySelector('tr.elem-labels')) {
-          var labelHtml = '<tr class="elem-labels">';
+          var labelHtml = '';
           for (var i = 0; i < totalBits; i++) {
             var labelText = '';
             if (i < 4) {
@@ -824,11 +825,8 @@ const {Float16Array} = float16;
             }
             labelHtml += '<td class="nibble" style="font-size:9px;line-height:10px;">' + labelText + '</td>';
           }
-          labelHtml += '</tr>';
-          var firstRow = input.querySelector('table tr:first-child');
-          var newRow = document.createElement('tr');
-          newRow.innerHTML = labelHtml;
-          input.querySelector('table').insertBefore(newRow, firstRow);
+          input.querySelector('table tr:first-child').insertAdjacentHTML('beforebegin',
+            '<tr class="elem-labels">' + labelHtml + '</tr>');
         }
 
         help.innerHTML =

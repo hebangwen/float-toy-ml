@@ -1127,7 +1127,7 @@ const {Float16Array} = float16;
       if (document.activeElement === hex) {
         var value;
         if (isBF16) {
-          var uint32 = (bytes[0] << 24) | (bytes[1] << 16);
+          var uint32 = (bytes[1] << 24) | (bytes[0] << 16);
           var float32 = new Float32Array(1);
           new Uint32Array(float32.buffer)[0] = uint32;
           value = float32[0];
@@ -1141,7 +1141,7 @@ const {Float16Array} = float16;
       } else {
         var value;
         if (isBF16) {
-          var uint32 = (bytes[0] << 24) | (bytes[1] << 16);
+          var uint32 = (bytes[1] << 24) | (bytes[0] << 16);
           var float32 = new Float32Array(1);
           new Uint32Array(float32.buffer)[0] = uint32;
           value = float32[0];

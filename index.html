@@ -594,16 +594,15 @@ const {Float16Array} = float16;
           var bitInBytePos = 7 - j; // Which bit position within the byte (MSB = 0)
 
           if (isFormat === 'fp4') {
-            // For FP4, each nibble is a separate 4-bit value
-            // In a byte: upper nibble (bits 7-4) = second FP4, lower nibble (bits 3-0) = first FP4
-            // Let's show as separate sign/exp/fraction for each nibble
+            // For FP4: left-to-right = MSB-to-LSB = sign|exp|exp|mant
+            // byte = [E2:bit7..bit4][E1:bit3..bit0]
             var bitInElement;
             if (j < 4) {
-              // First element (lower nibble) — bits 3-0
-              bitInElement = 3 - j; // bit 3 = sign, bit 2-1 = exp, bit 0 = fraction
+              // Upper nibble (bits 7-4) = E2
+              bitInElement = j; // j=0→sign, 1→exp, 2→exp, 3→mant
             } else {
-              // Second element (upper nibble) — bits 7-4
-              bitInElement = 7 - j; // bit 7 = sign, bit 6-5 = exp, bit 4 = fraction
+              // Lower nibble (bits 3-0) = E1
+              bitInElement = j - 4; // j=4→sign, 5→exp, 6→exp, 7→mant
             }
             var className = bitInElement === 0 ? 'sign' : bitInElement < 3 ? 'exponent' : 'fraction';
             html += '<td data-index="' + index + '" class="' + className + '">0</td>';
@@ -813,23 +812,24 @@ const {Float16Array} = float16;
         var mantVal = highNibble & 0x01;
         var expRealHigh = expVal === 0 ? 1 - 1 : expVal - 1;
 
-        // Also add element labels
-        var labelHtml = '<tr>';
-        for (var i = 0; i < totalBits; i++) {
-          var labelText = '';
-          if (i < 4) {
-            labelText = 'E1';
-          } else {
-            labelText = 'E2';
+        // Also add element labels (once only)
+        if (!input.querySelector('tr.elem-labels')) {
+          var labelHtml = '<tr class="elem-labels">';
+          for (var i = 0; i < totalBits; i++) {
+            var labelText = '';
+            if (i < 4) {
+              labelText = 'E2';
+            } else {
+              labelText = 'E1';
+            }
+            labelHtml += '<td class="nibble" style="font-size:9px;line-height:10px;">' + labelText + '</td>';
           }
-          labelHtml += '<td class="nibble" style="font-size:9px;line-height:10px;">' + labelText + '</td>';
+          labelHtml += '</tr>';
+          var firstRow = input.querySelector('table tr:first-child');
+          var newRow = document.createElement('tr');
+          newRow.innerHTML = labelHtml;
+          input.querySelector('table').insertBefore(newRow, firstRow);
         }
-        labelHtml += '</tr>';
-        // Insert before existing row
-        var firstRow = input.querySelector('table tr:first-child');
-        var newRow = document.createElement('tr');
-        newRow.innerHTML = labelHtml;
-        input.querySelector('table').insertBefore(newRow, firstRow);
 
         help.innerHTML =
           '<span style="font-size:12px;">E2: </span>' +

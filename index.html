@@ -115,6 +115,31 @@
   span.exponent { background: #DFD; }
   span.fraction { background: #FDD; }
 
+  .format-group {
+    margin: 40px 0;
+  }
+
+  .format-tag {
+    display: inline-block;
+    font-size: 11px;
+    background: #e8e8e8;
+    border-radius: 3px;
+    padding: 1px 6px;
+    margin-left: 10px;
+    vertical-align: middle;
+    color: #666;
+  }
+
+  .mxfp4-container table {
+    font-size: 16px;
+  }
+  .mxfp4-container td {
+    font-size: 16px;
+  }
+
+  td.shared-exponent { background: #FFD700; }
+  td.shared-exponent.hover { background: #DAA520; }
+  span.shared-exponent { background: #FFF0AA; }
 </style>
 <body>
   <h1>Float Toy</h1>
@@ -123,6 +148,80 @@
     Use this to build intuition for the IEEE floating-point format.
     See Wikipedia for details on the <a href="https://en.wikipedia.org/wiki/Half-precision_floating-point_format">half-precision</a>, <a href="https://en.wikipedia.org/wiki/Single-precision_floating-point_format">single-precision</a> and <a href="https://en.wikipedia.org/wiki/Double-precision_floating-point_format">double-precision</a> floating-point formats.
   </p>
+
+  <div class="format-group">
+    <h2>8-bit (FP8 E4M3) <span class="format-tag">OCP 8-bit</span></h2>
+    <table>
+      <tr>
+        <td><span id="inputFP8E4M3" class="input"></span></td>
+        <td class="zerox-col"><span class="zerox">&nbsp;&nbsp;=&nbsp;&nbsp;0x</span></td>
+        <td class="output-col"><input id="hexFP8E4M3" class="output"></td>
+      </tr>
+    </table>
+    <table>
+      <tr>
+        <td><span id="helpFP8E4M3" class="help"></span></td>
+        <td>&nbsp;&nbsp;=&nbsp;&nbsp;</td>
+        <td class="hex-col"><input id="outputFP8E4M3" class="output"></td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="format-group">
+    <h2>8-bit (FP8 E5M2) <span class="format-tag">OCP 8-bit</span></h2>
+    <table>
+      <tr>
+        <td><span id="inputFP8E5M2" class="input"></span></td>
+        <td class="zerox-col"><span class="zerox">&nbsp;&nbsp;=&nbsp;&nbsp;0x</span></td>
+        <td class="output-col"><input id="hexFP8E5M2" class="output"></td>
+      </tr>
+    </table>
+    <table>
+      <tr>
+        <td><span id="helpFP8E5M2" class="help"></span></td>
+        <td>&nbsp;&nbsp;=&nbsp;&nbsp;</td>
+        <td class="hex-col"><input id="outputFP8E5M2" class="output"></td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="format-group">
+    <h2>4-bit (FP4 E2M1) <span class="format-tag">OCP 4-bit</span></h2>
+    <p style="font-size: 12px; color: #666;">Two 4-bit values share one byte. Click a hex digit (4 bits) or toggle individual bits.</p>
+    <table>
+      <tr>
+        <td><span id="inputFP4" class="input"></span></td>
+        <td class="zerox-col"><span class="zerox">&nbsp;&nbsp;=&nbsp;&nbsp;0x</span></td>
+        <td class="output-col"><input id="hexFP4" class="output"></td>
+      </tr>
+    </table>
+    <table>
+      <tr>
+        <td><span id="helpFP4" class="help"></span></td>
+        <td>&nbsp;&nbsp;=&nbsp;&nbsp;</td>
+        <td class="hex-col"><input id="outputFP4" class="output"></td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="format-group mxfp4-container">
+    <h2>MXFP4 (Microscaling FP4) <span class="format-tag">OCP MX</span></h2>
+    <p style="font-size: 12px; color: #666;">Block of 2 FP4 E2M1 elements with a shared E8M0 scale. 1 sign + 2 exponent + 1 mantissa per element.</p>
+    <table>
+      <tr>
+        <td><span id="inputMXFP4" class="input"></span></td>
+        <td class="zerox-col"><span class="zerox">&nbsp;&nbsp;=&nbsp;&nbsp;0x</span></td>
+        <td class="output-col"><input id="hexMXFP4" class="output"></td>
+      </tr>
+    </table>
+    <table>
+      <tr>
+        <td><span id="helpMXFP4" class="help"></span></td>
+        <td>&nbsp;&nbsp;=&nbsp;&nbsp;</td>
+        <td class="hex-col"><input id="outputMXFP4" class="output"></td>
+      </tr>
+    </table>
+  </div>
 
   <h2>16-bit (half)</h2>
   <table>
@@ -194,10 +293,619 @@ const {Float16Array} = float16;
 
 (function () {
 
+  // ── Custom 8-bit float helpers ──────────────────────────────
+  // FP8-E4M3: 1 sign, 4 exp, 3 mantissa, bias=7
+  // FP8-E5M2: 1 sign, 5 exp, 2 mantissa, bias=15
+  // FP4-E2M1: 1 sign, 2 exp, 1 mantissa, bias=1  (4-bit)
+  // MXFP4:  block of 2 FP4 elements + E8M0 shared scale (8-bit total for scale + 2 elements in 1 byte)
+
+  function fp8E4M3ToNumber(bits) {
+    var sign = (bits >> 7) & 1;
+    var exp = (bits >> 3) & 0x0F;
+    var mant = bits & 0x07;
+    var bias = 7;
+    if (exp === 0) {
+      // zero or denorm
+      if (mant === 0) return sign ? -0 : 0;
+      return (sign ? -1 : 1) * Math.pow(2, 1 - bias) * (mant / 8);
+    } else if (exp === 0x0F) {
+      // inf/nan
+      if (mant === 0) return sign ? -Infinity : Infinity;
+      return NaN;
+    }
+    return (sign ? -1 : 1) * Math.pow(2, exp - bias) * (1 + mant / 8);
+  }
+
+  function numberToFp8E4M3(x) {
+    if (x === 0) {
+      var neg = 1 / x === -Infinity;
+      return neg ? 0x80 : 0x00;
+    }
+    if (!isFinite(x)) {
+      if (isNaN(x)) return 0x7F; // NaN
+      return x < 0 ? 0xFF : 0x7C; // -Inf: 1_1111_000, +Inf: 0_1111_000
+    }
+    var sign = x < 0 ? 0x80 : 0x00;
+    x = Math.abs(x);
+    // Compute unbiased exponent
+    var exp = Math.floor(Math.log2(x));
+    var bias = 7;
+    // Check for overflow to inf
+    if (exp > 8) return sign | 0x78;
+    // Denorm range
+    if (exp < -6) {
+      // denormalized
+      var val = x / Math.pow(2, 1 - bias); // 2^1 = 2, then divide by 2^(-6)=1/64, so multiply by... let me recalculate
+      // For denorm: value = (-1)^s * 2^(1-bias) * mantissa/8
+      // So mantissa = value / 2^(1-bias) * 8 = value / 2^(-6) * 8
+      // value / 2^(-6) = value * 64
+      // Then * 8 = * 512
+      // Actually: mantissa = value * 2^(bias-1) * 8 = value * 2^6 * 8 = value * 64 * 8 = value * 512
+      var mant = Math.round(x * 512);
+      if (mant > 7) mant = 7;
+      return sign | mant;
+    }
+    // Normal range
+    var normalExp = exp + bias;
+    var mant = Math.round((x / Math.pow(2, exp) - 1) * 8);
+    if (mant > 7) { mant = 0; normalExp++; }
+    if (normalExp > 14) return sign | 0x78;
+    if (normalExp <= 0) { // should be denorm but rounding pushed back to zero-ish
+      normalExp = 0;
+      mant = Math.round(x * 512);
+      if (mant > 7) mant = 7;
+    }
+    return sign | (normalExp << 3) | mant;
+  }
+
+  function fp8E5M2ToNumber(bits) {
+    var sign = (bits >> 7) & 1;
+    var exp = (bits >> 2) & 0x1F;
+    var mant = bits & 0x03;
+    var bias = 15;
+    if (exp === 0) {
+      if (mant === 0) return sign ? -0 : 0;
+      return (sign ? -1 : 1) * Math.pow(2, 1 - bias) * (mant / 4);
+    } else if (exp === 0x1F) {
+      if (mant === 0) return sign ? -Infinity : Infinity;
+      return NaN;
+    }
+    return (sign ? -1 : 1) * Math.pow(2, exp - bias) * (1 + mant / 4);
+  }
+
+  function numberToFp8E5M2(x) {
+    if (x === 0) {
+      var neg = 1 / x === -Infinity;
+      return neg ? 0x80 : 0x00;
+    }
+    if (!isFinite(x)) {
+      if (isNaN(x)) return 0x7F;
+      return x < 0 ? 0xFF : 0x7C;
+    }
+    var sign = x < 0 ? 0x80 : 0x00;
+    x = Math.abs(x);
+    var exp = Math.floor(Math.log2(x));
+    var bias = 15;
+    if (exp > 16) return sign | 0x7C;
+    if (exp < -14) {
+      var mant = Math.round(x * Math.pow(2, bias - 1) * 4); // x * 2^14 * 4 = x * 65536
+      if (mant > 3) mant = 3;
+      return sign | mant;
+    }
+    var normalExp = exp + bias;
+    var mant = Math.round((x / Math.pow(2, exp) - 1) * 4);
+    if (mant > 3) { mant = 0; normalExp++; }
+    if (normalExp > 30) return sign | 0x7C;
+    if (normalExp <= 0) {
+      normalExp = 0;
+      mant = Math.round(x * 65536);
+      if (mant > 3) mant = 3;
+    }
+    return sign | (normalExp << 2) | mant;
+  }
+
+  function fp4E2M1ToNumber(bits) {
+    var sign = (bits >> 3) & 1;
+    var exp = (bits >> 1) & 0x03;
+    var mant = bits & 0x01;
+    var bias = 1;
+    if (exp === 0) {
+      if (mant === 0) return sign ? -0 : 0;
+      return (sign ? -1 : 1) * Math.pow(2, 1 - bias) * (mant / 2);
+    } else if (exp === 0x03) {
+      if (mant === 0) return sign ? -Infinity : Infinity;
+      return NaN;
+    }
+    return (sign ? -1 : 1) * Math.pow(2, exp - bias) * (1 + mant / 2);
+  }
+
+  function numberToFp4E2M1(x) {
+    if (x === 0) {
+      return (1 / x === -Infinity) ? 0x08 : 0x00;
+    }
+    if (!isFinite(x)) {
+      if (isNaN(x)) return 0x07;
+      return x < 0 ? 0x0F : 0x07;
+    }
+    var sign = x < 0 ? 0x08 : 0x00;
+    x = Math.abs(x);
+    var exp = Math.floor(Math.log2(x));
+    var bias = 1;
+    if (exp > 2) return sign | 0x07;
+    if (exp < -0) { // denorm: 2^(1-bias) = 2^0 = 1, mant/2 = x/1, so mant = x*2
+      var mant = Math.round(x * 2);
+      if (mant > 1) mant = 1;
+      return sign | mant;
+    }
+    var normalExp = exp + bias;
+    var mant = Math.round((x / Math.pow(2, exp) - 1) * 2);
+    if (mant > 1) { mant = 0; normalExp++; }
+    if (normalExp > 2) return sign | 0x07;
+    if (normalExp <= 0) {
+      normalExp = 0;
+      mant = Math.round(x * 2);
+      if (mant > 1) mant = 1;
+    }
+    return sign | (normalExp << 1) | mant;
+  }
+
+  // E8M0 shared scale (8-bit exponent, bias=127, no sign, no mantissa)
+  function e8m0ToNumber(bits) {
+    var exp = bits & 0xFF;
+    var bias = 127;
+    if (exp === 0) return 0;
+    if (exp === 0xFF) return Infinity;
+    return Math.pow(2, exp - bias);
+  }
+
+  function numberToE8M0(x) {
+    if (x === 0) return 0;
+    if (!isFinite(x)) return 0xFF;
+    x = Math.abs(x);
+    var exp = Math.floor(Math.log2(x));
+    var bias = 127;
+    exp = exp + bias;
+    if (exp > 254) return 0xFF;
+    if (exp < 1) return 0;
+    return exp & 0xFF;
+  }
+
+  // ── Custom format load function ────────────────────────────
+
+  function loadCustom(bytes, exponentBits, input, output, help, hex, isFormat) {
+    var totalBits = bytes.length * 8;
+    var hexLength = bytes.length;
+
+    function reduceNumber(x) {
+      // For custom formats, decode from bytes then reduce
+      var value;
+      if (isFormat === 'fp8e4m3') {
+        value = fp8E4M3ToNumber(bytes[0]);
+      } else if (isFormat === 'fp8e5m2') {
+        value = fp8E5M2ToNumber(bytes[0]);
+      } else if (isFormat === 'fp4') {
+        // Two 4-bit values in one byte
+        // We show the first one (high nibble) in the output
+        var highNibble = (bytes[0] >> 4) & 0x0F;
+        value = fp4E2M1ToNumber(highNibble);
+      } else if (isFormat === 'mxfp4') {
+        // MXFP4 block: 1 byte E8M0 scale, then bytes with 2 FP4 elements each
+        // Bytes layout: [scale_byte, fp4_elements...]
+        // For simplicity, show first FP4 element value
+        if (bytes.length >= 2) {
+          var highNibble = (bytes[1] >> 4) & 0x0F;
+          var scale = e8m0ToNumber(bytes[0]);
+          value = fp4E2M1ToNumber(highNibble) * scale;
+        } else {
+          value = NaN;
+        }
+      }
+      x = value === 0 && 1 / value === -Infinity ? '-0' : value + '';
+      if (x === 'NaN' || x === 'Infinity' || x === '-Infinity') return x;
+
+      var parts = /^([+-]?\d+)((?:\.\d+)?)((?:[eE][+-]?\d+)?)$/.exec(x);
+      var whole = parts[1];
+      var fraction = parts[2];
+      var exponent = parts[3];
+      // Remove digits one-by-one until the number changes
+      while (fraction.length > 0) {
+        var truncatedFraction = fraction.slice(0, -1);
+        var text = whole + (truncatedFraction !== '.' ? truncatedFraction : '') + exponent;
+        var copyVal;
+        if (isFormat === 'fp8e4m3') { copyVal = fp8E4M3ToNumber(bytes[0]); }
+        else if (isFormat === 'fp8e5m2') { copyVal = fp8E5M2ToNumber(bytes[0]); }
+        else if (isFormat === 'fp4') { copyVal = fp4E2M1ToNumber((bytes[0] >> 4) & 0x0F); }
+        else if (isFormat === 'mxfp4') {
+          if (bytes.length >= 2) { copyVal = fp4E2M1ToNumber((bytes[1] >> 4) & 0x0F) * e8m0ToNumber(bytes[0]); }
+          else { copyVal = NaN; }
+        }
+        var truncatedValue = copyVal;
+        if (truncatedValue === value && text !== '') {
+          fraction = truncatedFraction;
+          x = text;
+          continue;
+        }
+        // Try rounding
+        var roundedFraction = truncatedFraction;
+        var i = roundedFraction.length - 1;
+        var zero = '0'.charCodeAt(0);
+        while (i > 0) {
+          var c = roundedFraction.charCodeAt(i) - zero;
+          roundedFraction = roundedFraction.slice(0, i) + String.fromCharCode((c + 1) % 10 + zero) + roundedFraction.slice(i + 1);
+          if (c < 9) break;
+          i--;
+        }
+        text = whole + (roundedFraction !== '.' ? roundedFraction : '') + exponent;
+        if (isFormat === 'fp8e4m3') { copyVal = fp8E4M3ToNumber(bytes[0]); }
+        else if (isFormat === 'fp8e5m2') { copyVal = fp8E5M2ToNumber(bytes[0]); }
+        else if (isFormat === 'fp4') { copyVal = fp4E2M1ToNumber((bytes[0] >> 4) & 0x0F); }
+        else if (isFormat === 'mxfp4') {
+          if (bytes.length >= 2) { copyVal = fp4E2M1ToNumber((bytes[1] >> 4) & 0x0F) * e8m0ToNumber(bytes[0]); }
+          else { copyVal = NaN; }
+        }
+        var roundedValue = copyVal;
+        if (roundedValue === value) {
+          fraction = roundedFraction;
+          x = text;
+          continue;
+        }
+        break;
+      }
+      return x;
+    }
+
+    // Populate HTML
+    var html = '<table>';
+    // Bit position labels
+    html += '<tr>';
+    for (var i = 0; i < totalBits; i++) {
+      var bitIndex = totalBits - i;
+      if (i % 4 >= 2) {
+        html += '<td class="nibble">' + bitIndex + '</td>';
+      } else {
+        html += '<td class="dark nibble">' + bitIndex + '</td>';
+      }
+    }
+    html += '</tr>';
+
+    if (isFormat === 'mxfp4' && bytes.length >= 2) {
+      // MXFP4: first byte is E8M0 shared scale, remaining bytes are FP4 pairs
+      html += '<tr>';
+      // Scale byte bits
+      for (var j = 0; j < 8; j++) {
+        html += '<td data-index="' + j + '" class="shared-exponent">0</td>';
+      }
+      // FP4 element bits
+      for (var i = 1; i < bytes.length; i++) {
+        for (var j = 0; j < 8; j++) {
+          var index = i * 8 + j;
+          var bitInElement = j % 4;
+          var className = bitInElement === 0 ? 'sign' : bitInElement < 3 ? 'exponent' : 'fraction';
+          html += '<td data-index="' + index + '" class="' + className + '">0</td>';
+        }
+      }
+      html += '</tr></table>';
+    } else {
+      // Standard bit layout
+      html += '<tr>';
+      for (var i = 0; i < bytes.length; i++) {
+        for (var j = 0; j < 8; j++) {
+          var index = i * 8 + j;
+          var bitInBytePos = 7 - j; // Which bit position within the byte (MSB = 0)
+
+          if (isFormat === 'fp4') {
+            // For FP4, each nibble is a separate 4-bit value
+            // In a byte: upper nibble (bits 7-4) = second FP4, lower nibble (bits 3-0) = first FP4
+            // Let's show as separate sign/exp/fraction for each nibble
+            var bitInElement;
+            if (j < 4) {
+              // First element (lower nibble) — bits 3-0
+              bitInElement = 3 - j; // bit 3 = sign, bit 2-1 = exp, bit 0 = fraction
+            } else {
+              // Second element (upper nibble) — bits 7-4
+              bitInElement = 7 - j; // bit 7 = sign, bit 6-5 = exp, bit 4 = fraction
+            }
+            var className = bitInElement === 0 ? 'sign' : bitInElement < 3 ? 'exponent' : 'fraction';
+            html += '<td data-index="' + index + '" class="' + className + '">0</td>';
+          } else {
+            var className =
+              index === 0 ? 'sign' :
+                index < 1 + exponentBits ? 'exponent' :
+                  'fraction';
+            html += '<td data-index="' + index + '" class="' + className + '">0</td>';
+          }
+        }
+      }
+      html += '</tr></table>';
+    }
+    input.innerHTML = html;
+
+    // Grab elements
+    var elements = [];
+    for (var i = 0; i < totalBits; i++) {
+      (function (i) {
+        var element = input.querySelector('[data-index="' + i + '"]');
+        if (element) {
+          element.onmouseover = function () { this.classList.add('hover'); };
+          element.onmouseout = function () { this.classList.remove('hover'); };
+          elements.push(element);
+        }
+      })(i);
+    }
+
+    function setAllBits(value) {
+      // Set all bits from a numerical value (stored in first byte(s) depending on format)
+      if (isFormat === 'fp8e4m3') {
+        bytes[0] = numberToFp8E4M3(value);
+      } else if (isFormat === 'fp8e5m2') {
+        bytes[0] = numberToFp8E5M2(value);
+      } else if (isFormat === 'fp4') {
+        var highBits = numberToFp4E2M1(value);
+        bytes[0] = (highBits << 4) | 0x00; // set high nibble, clear low
+      } else if (isFormat === 'mxfp4' && bytes.length >= 2) {
+        var fp4Val = numberToFp4E2M1(value);
+        bytes[1] = (fp4Val << 4) | (bytes[1] & 0x0F); // set high nibble of first element byte
+        bytes[0] = numberToE8M0(1); // reset scale to 1
+      }
+      render();
+    }
+
+    function extractNumber() {
+      return +(output.value.replace(/\b(?:infinity|inf)\b/gi, 'Infinity'));
+    }
+
+    function getCurrentValue() {
+      if (isFormat === 'fp8e4m3') return fp8E4M3ToNumber(bytes[0]);
+      if (isFormat === 'fp8e5m2') return fp8E5M2ToNumber(bytes[0]);
+      if (isFormat === 'fp4') return fp4E2M1ToNumber((bytes[0] >> 4) & 0x0F);
+      if (isFormat === 'mxfp4' && bytes.length >= 2) return fp4E2M1ToNumber((bytes[1] >> 4) & 0x0F) * e8m0ToNumber(bytes[0]);
+      return NaN;
+    }
+
+    function setFromText(textVal) {
+      var num = +textVal;
+      if (textVal.toLowerCase().match(/inf/)) {
+        var isNeg = textVal[0] === '-';
+        num = isNeg ? -Infinity : Infinity;
+      }
+      if (textVal === '-0') num = -0;
+      setAllBits(num);
+    }
+
+    output.onkeydown = function (e) {
+      if (e.which === 13) {
+        e.preventDefault();
+        output.blur();
+      } else if (e.which === 38) {
+        e.preventDefault();
+        var cur = getCurrentValue();
+        if (isFinite(cur)) {
+          setFromText(cur + 1);
+        }
+        output.select();
+      } else if (e.which === 40) {
+        e.preventDefault();
+        var cur = getCurrentValue();
+        if (isFinite(cur)) {
+          setFromText(cur - 1);
+        }
+        output.select();
+      }
+    };
+    output.onfocus = function () { output.select(); };
+    output.oninput = function () {
+      setFromText(output.value);
+      render();
+    };
+    output.onblur = function () { render(); };
+
+    hex.onkeydown = function (e) {
+      if (e.which === 13) { e.preventDefault(); hex.blur(); }
+    };
+    hex.onfocus = function () { hex.select(); };
+    hex.oninput = function () {
+      var hexAlphabet = '0123456789abcdefABCDEF';
+      var valid = hex.value.split('').every(function (c) { return hexAlphabet.indexOf(c) !== -1; });
+      if (hex.value.length > (hexLength * 2) || !valid) {
+        hex.value = hex.value.slice(0, -1);
+        return;
+      }
+      var tmpBytes = toByteArray(hex.value);
+      bytes.fill(0);
+      bytes.set(tmpBytes.reverse(), hexLength - tmpBytes.length);
+      render();
+    };
+    hex.onblur = function () { render(); };
+
+    input.onmousedown = function (e) {
+      if ('index' in e.target.dataset) {
+        var index = e.target.dataset.index | 0;
+        var byteIndex = Math.floor(index / 8);
+        var bitInByte = 7 - (index % 8);
+        var byteMask = 1 << bitInByte;
+        var mouseDownValue = (bytes[byteIndex] & byteMask) ? 0 : 1;
+        bytes[byteIndex] ^= byteMask;
+        render();
+
+        document.onmousemove = function (e2) {
+          if ('index' in e2.target.dataset) {
+            var idx = e2.target.dataset.index | 0;
+            var bIdx = Math.floor(idx / 8);
+            var bBit = 7 - (idx % 8);
+            var bMask = 1 << bBit;
+            bytes[bIdx] = (bytes[bIdx] & ~bMask) | (bMask * mouseDownValue);
+            render();
+          }
+        };
+
+        document.onmouseup = function () {
+          document.onmousemove = null;
+          document.onmouseup = null;
+        };
+      }
+    };
+
+    function render() {
+      // Update bit display
+      for (var i = 0; i < totalBits; i++) {
+        var byteIndex = Math.floor(i / 8);
+        var bitInByte = 7 - (i % 8);
+        if (elements[i]) {
+          elements[i].textContent = (bytes[byteIndex] >> bitInByte) & 1;
+        }
+      }
+
+      // Build exponent bits info and compute value
+      var signBit, expVal, fracVal, computedValue;
+      var isMX = isFormat === 'mxfp4' && bytes.length >= 2;
+
+      if (isFormat === 'fp8e4m3') {
+        signBit = (bytes[0] >> 7) & 1;
+        expVal = (bytes[0] >> 3) & 0x0F;
+        fracVal = (bytes[0] & 0x07) / 8;
+        computedValue = fp8E4M3ToNumber(bytes[0]);
+        var expDisplay = expVal - 7;
+        var fracDisplay = expVal === 0
+          ? (fracVal / 2) // denorm: fraction = mant/8, then 2^(1-7)=2^-6 => frac/8 * 1 = mant/8 * 2^-6 = mant * 2^-9
+          : 1 + fracVal;
+
+        if (expVal === 0 && fracVal === 0) fracDisplay = 0;
+        var expReal = expVal === 0 ? 1 - 7 : expVal - 7;
+        help.innerHTML =
+          '<span class="sign">' + (signBit ? -1 : 1) + '</span>' +
+          '&nbsp;&nbsp;&times;&nbsp;&nbsp;' +
+          '<span class="exponent">2<sup>' + expReal + '</sup></span>' +
+          '&nbsp;&nbsp;&times;&nbsp;&nbsp;' +
+          '<span class="fraction">' + reduceNumber(computedValue === 0 && 1/computedValue === -Infinity ? '-0' : computedValue).replace(/^(-?\d+[.eE+-].*|[^.]+)$/, '$1').replace(/[eE]/, '') + '</span>';
+        
+        // Restore the original format
+        help.innerHTML =
+          '<span class="sign">' + (signBit ? -1 : 1) + '</span>' +
+          '&nbsp;&nbsp;&times;&nbsp;&nbsp;' +
+          '<span class="exponent">2<sup>' + expReal + '</sup></span>' +
+          '&nbsp;&nbsp;&times;&nbsp;&nbsp;' +
+          '<span class="fraction">' + (expVal === 0 && (bytes[0] & 0x07) === 0 ? '0' : (expVal === 0 ? (bytes[0] & 0x07) / 8 : 1 + (bytes[0] & 0x07) / 8)) + '</span>';
+
+      } else if (isFormat === 'fp8e5m2') {
+        signBit = (bytes[0] >> 7) & 1;
+        expVal = (bytes[0] >> 2) & 0x1F;
+        fracVal = (bytes[0] & 0x03) / 4;
+        computedValue = fp8E5M2ToNumber(bytes[0]);
+        var expReal = expVal === 0 ? 1 - 15 : expVal - 15;
+        help.innerHTML =
+          '<span class="sign">' + (signBit ? -1 : 1) + '</span>' +
+          '&nbsp;&nbsp;&times;&nbsp;&nbsp;' +
+          '<span class="exponent">2<sup>' + expReal + '</sup></span>' +
+          '&nbsp;&nbsp;&times;&nbsp;&nbsp;' +
+          '<span class="fraction">' + (expVal === 0 && (bytes[0] & 0x03) === 0 ? '0' : (expVal === 0 ? (bytes[0] & 0x03) / 4 : 1 + (bytes[0] & 0x03) / 4)) + '</span>';
+        computedValue = fp8E5M2ToNumber(bytes[0]);
+
+      } else if (isFormat === 'fp4') {
+        // Show two values
+        var lowNibble = bytes[0] & 0x0F;
+        var highNibble = (bytes[0] >> 4) & 0x0F;
+        var valLow = fp4E2M1ToNumber(lowNibble);
+        var valHigh = fp4E2M1ToNumber(highNibble);
+
+        // Show high nibble in main area
+        signBit = (highNibble >> 3) & 1;
+        expVal = (highNibble >> 1) & 0x03;
+        var mantVal = highNibble & 0x01;
+        var expRealHigh = expVal === 0 ? 1 - 1 : expVal - 1;
+
+        // Also add element labels
+        var labelHtml = '<tr>';
+        for (var i = 0; i < totalBits; i++) {
+          var labelText = '';
+          if (i < 4) {
+            labelText = 'E1';
+          } else {
+            labelText = 'E2';
+          }
+          labelHtml += '<td class="nibble" style="font-size:9px;line-height:10px;">' + labelText + '</td>';
+        }
+        labelHtml += '</tr>';
+        // Insert before existing row
+        var firstRow = input.querySelector('table tr:first-child');
+        var newRow = document.createElement('tr');
+        newRow.innerHTML = labelHtml;
+        input.querySelector('table').insertBefore(newRow, firstRow);
+
+        help.innerHTML =
+          '<span style="font-size:12px;">E2: </span>' +
+          '<span class="sign">' + (signBit ? -1 : 1) + '</span>' +
+          '&nbsp;&nbsp;&times;&nbsp;&nbsp;' +
+          '<span class="exponent">2<sup>' + expRealHigh + '</sup></span>' +
+          '&nbsp;&nbsp;&times;&nbsp;&nbsp;' +
+          '<span class="fraction">' + (expVal === 0 && mantVal === 0 ? '0' : (expVal === 0 ? mantVal / 2 : 1 + mantVal / 2)) + '</span>' +
+          '<br/><span style="font-size:11px;color:#888;">&nbsp;&nbsp;E1=' + valLow + ' | E2=' + valHigh + '</span>';
+        computedValue = valHigh;
+
+      } else if (isMX) {
+        // MXFP4: scale byte + 2 FP4 elements in next byte
+        var scaleVal = e8m0ToNumber(bytes[0]);
+        var fp4Bits = bytes[1];
+        var lowNibble = fp4Bits & 0x0F;
+        var highNibble = (fp4Bits >> 4) & 0x0F;
+        var valLow = fp4E2M1ToNumber(lowNibble) * scaleVal;
+        var valHigh = fp4E2M1ToNumber(highNibble) * scaleVal;
+
+        signBit = (highNibble >> 3) & 1;
+        var fp4exp = (highNibble >> 1) & 0x03;
+        var fp4mant = highNibble & 0x01;
+        var expRealHigh = fp4exp === 0 ? 1 - 1 : fp4exp - 1;
+        var scaleExp = bytes[0] === 0 ? 0 : (bytes[0] - 127);
+
+        help.innerHTML =
+          '<span class="shared-exponent">2<sup>' + scaleExp + '</sup></span>' +
+          '&nbsp;&nbsp;&times;&nbsp;&nbsp;' +
+          '<span class="sign">' + (signBit ? -1 : 1) + '</span>' +
+          '&nbsp;&nbsp;&times;&nbsp;&nbsp;' +
+          '<span class="exponent">2<sup>' + expRealHigh + '</sup></span>' +
+          '&nbsp;&nbsp;&times;&nbsp;&nbsp;' +
+          '<span class="fraction">' + (fp4exp === 0 && fp4mant === 0 ? '0' : (fp4exp === 0 ? fp4mant / 2 : 1 + fp4mant / 2)) + '</span>' +
+          '<br/><span style="font-size:11px;color:#888;">&nbsp;&nbsp;scale=' + scaleVal.toPrecision(4) + ' | E1=' + valLow.toPrecision(4) + ' | E2=' + valHigh.toPrecision(4) + '</span>';
+        computedValue = valHigh;
+
+      } else {
+        computedValue = NaN;
+      }
+
+      // Update output and hex
+      if (document.activeElement !== hex) {
+        var tmpBytes = bytes.slice().reverse();
+        hex.value = toHexString(tmpBytes);
+      }
+      if (document.activeElement !== output) {
+        var displayVal = computedValue;
+        if (displayVal === 0 && 1 / displayVal === -Infinity) displayVal = '-0';
+        output.value = reduceNumber(displayVal);
+      }
+    }
+
+    function toHexString(byteArray) {
+      return Array.from(byteArray, function (byte) {
+        return ('0' + byte.toString(16).toUpperCase()).slice(-2);
+      }).join('');
+    }
+
+    function toByteArray(hexString) {
+      var result = [];
+      if (hexString.length % 2 === 1) hexString = hexString + '0';
+      for (var i = 0; i < hexString.length; i += 2) {
+        result.push(parseInt(hexString.substr(i, 2), 16));
+      }
+      return result;
+    }
+
+    render();
+  }
+
+  // ── Standard load function (original) ──────────────────────
   function load(array, exponentBits, input, output, help, hex) {
     var bytes = new Uint8Array(array.buffer);
     var hexLength = bytes.length;
-    var isBF16 = array instanceof Uint16Array && exponentBits === 8; // 判断是否为 bfloat16
+    var isBF16 = array instanceof Uint16Array && exponentBits === 8;
 
     function reduceNumber(x) {
       var copy;
@@ -210,8 +918,6 @@ const {Float16Array} = float16;
         copy = bytes.length === 2 ? new Float16Array(1) : bytes.length === 4 ? new Float32Array(1) : new Float64Array(1);
         copy[0] = +x;
       }
-      // var copy = bytes.length === 2 ? new Float16Array(1) : bytes.length === 4 ? new Float32Array(1) : new Float64Array(1);
-      // copy[0] = +x;
       var value = copy[0];
       x = value === 0 && 1 / value === -Infinity ? '-0' : value + '';
 
@@ -224,9 +930,7 @@ const {Float16Array} = float16;
       var fraction = parts[2];
       var exponent = parts[3];
 
-      // Remove digits one-by-one until the number changes
       while (fraction.length > 0) {
-        // Try truncating
         var truncatedFraction = fraction.slice(0, -1);
         var text = whole + (truncatedFraction !== '.' ? truncatedFraction : '') + exponent;
         copy[0] = +text;
@@ -237,14 +941,13 @@ const {Float16Array} = float16;
           continue;
         }
 
-        // Try rounding
         var roundedFraction = truncatedFraction;
         var i = roundedFraction.length - 1;
         var zero = '0'.charCodeAt(0);
         while (i > 0) {
           var c = roundedFraction.charCodeAt(i) - zero;
           roundedFraction = roundedFraction.slice(0, i) + String.fromCharCode((c + 1) % 10 + zero) + roundedFraction.slice(i + 1);
-          if (c < 9) break; // Do we need to carry?
+          if (c < 9) break;
           i--;
         }
         var text = whole + (roundedFraction !== '.' ? roundedFraction : '') + exponent;
@@ -255,30 +958,25 @@ const {Float16Array} = float16;
           x = text;
           continue;
         }
-
-        // Both numbers changed, keep the old value
         break;
       }
 
       return x;
     }
 
-    // Populate HTML
     var html = '<table>';
-    // The bit numbers
     html += '<tr>';
     for (var i = 0; i < bytes.length; i++) {
       for (var j = 0; j < 8; j++) {
         var index = (bytes.length - i) * 8 - j;
         if (j > 3) {
-          html += '<td class="nibble">' + index + '</td>'
+          html += '<td class="nibble">' + index + '</td>';
         } else {
-          html += '<td class="dark nibble">' + index + '</td>'
+          html += '<td class="dark nibble">' + index + '</td>';
         }
       }
     }
     html += '</tr>';
-    // The bits
     html += '<tr>';
     for (var i = 0; i < bytes.length; i++) {
       for (var j = 0; j < 8; j++) {
@@ -293,7 +991,6 @@ const {Float16Array} = float16;
     html += '</tr></table>';
     input.innerHTML = html;
 
-    // Grab elements
     var elements = [];
     for (var i = 0; i < bytes.length * 8; i++) {
       (function (i) {
@@ -304,7 +1001,6 @@ const {Float16Array} = float16;
       })(i);
     }
 
-    // Event handlers
     function extractNumber() {
       return +(output.value.replace(/\b(?:infinity|inf)\b/gi, 'Infinity'));
     }
@@ -312,25 +1008,19 @@ const {Float16Array} = float16;
       if (e.which === 13) {
         e.preventDefault();
         output.blur();
-      }
-
-      else if (e.which === 38) {
+      } else if (e.which === 38) {
         e.preventDefault();
         output.value = reduceNumber(extractNumber() + 1);
         output.select();
         output.oninput();
-      }
-
-      else if (e.which === 40) {
+      } else if (e.which === 40) {
         e.preventDefault();
         output.value = reduceNumber(extractNumber() - 1);
         output.select();
         output.oninput();
       }
     };
-    output.onfocus = function () {
-      output.select();
-    };
+    output.onfocus = function () { output.select(); };
     output.oninput = function () {
       if (isBF16) {
         var x = extractNumber();
@@ -340,22 +1030,14 @@ const {Float16Array} = float16;
       } else {
         array[0] = extractNumber();
       }
-      // array[0] = extractNumber();
       render();
     };
-    output.onblur = function () {
-      render();
-    };
+    output.onblur = function () { render(); };
 
     hex.onkeydown = function (e) {
-      if (e.which === 13) {
-        e.preventDefault();
-        hex.blur();
-      }
+      if (e.which === 13) { e.preventDefault(); hex.blur(); }
     };
-    hex.onfocus = function () {
-      hex.select();
-    };
+    hex.onfocus = function () { hex.select(); };
     hex.oninput = function () {
       var hexAlphabet = '0123456789abcdefABCDEF';
       var validHexCharas = hex.value.split('').every(function (c) {
@@ -371,9 +1053,7 @@ const {Float16Array} = float16;
       bytes.set(tmpBytes.reverse(), hexLength - tmpBytes.length);
       render();
     };
-    hex.onblur = function () {
-      render();
-    };
+    hex.onblur = function () { render(); };
 
     input.onmousedown = function (e) {
       if ('index' in e.target.dataset) {
@@ -401,13 +1081,11 @@ const {Float16Array} = float16;
       }
     };
 
-    // Update loop
     function render() {
       for (var i = 0; i < bytes.length * 8; i++) {
         elements[i].textContent = ((bytes[bytes.length - (i >> 3) - 1] >> (7 - (i & 7))) & 1);
       }
 
-      // Figure out exponent
       var exponent = 0;
       for (var i = 0; i < exponentBits; i++) {
         var index = 1 + i;
@@ -417,7 +1095,6 @@ const {Float16Array} = float16;
       var exponentBias = (1 << (exponentBits - 1)) - 1;
       exponent -= exponentBias;
 
-      // Figure out fraction
       var copyBytes = new Uint8Array(bytes);
       var copy;
       if (isBF16) {
@@ -428,28 +1105,26 @@ const {Float16Array} = float16;
       } else {
         copy = bytes.length === 2 ? new Float16Array(copyBytes.buffer) : bytes.length === 4 ? new Float32Array(copyBytes.buffer) : new Float64Array(copyBytes.buffer);
       }
-      // var copy = bytes.length === 2 ? new Float16Array(copyBytes.buffer) : bytes.length === 4 ? new Float32Array(copyBytes.buffer) : new Float64Array(copyBytes.buffer);
       for (var i = 0; i < exponentBits; i++) {
         var index = 1 + i;
         var byteIndex = bytes.length - (index >> 3) - 1;
         var byteMask = 1 << (7 - (index & 7));
         copyBytes[byteIndex] = (copyBytes[byteIndex] & ~byteMask) | (i === 0 ? 0 : byteMask);
       }
-      var signIndex = bytes.length - 1;
-      var signMask = 0x80;
-      var sign = copyBytes[signIndex] & signMask;
-      copyBytes[signIndex] &= ~signMask;
+      if (bytes.length >= 1) {
+        var signIndex = bytes.length - 1;
+        var signMask = 0x80;
+        var sign = copyBytes[signIndex] & signMask;
+        copyBytes[signIndex] &= ~signMask;
+      }
       var fraction = copy[0];
 
-      // Handle denormal numbers
       if (exponent === -exponentBias) {
         exponent++;
         fraction--;
       }
 
-      // Update views according to which input was edited
       if (document.activeElement === hex) {
-        // var value = array[0];
         var value;
         if (isBF16) {
           var uint32 = (bytes[0] << 24) | (bytes[1] << 16);
@@ -463,8 +1138,7 @@ const {Float16Array} = float16;
       } else if (document.activeElement === output) {
         var tmpBytes = bytes.slice().reverse();
         hex.value = toHexString(tmpBytes);
-      } else { // This branch is for when the individual bits get toggled
-        // var value = array[0];
+      } else {
         var value;
         if (isBF16) {
           var uint32 = (bytes[0] << 24) | (bytes[1] << 16);
@@ -490,14 +1164,12 @@ const {Float16Array} = float16;
     function toHexString(byteArray) {
       return Array.from(byteArray, function (byte) {
         return ('0' + byte.toString(16).toUpperCase()).slice(-2);
-      }).join('')
+      }).join('');
     }
 
     function toByteArray(hexString) {
       var result = [];
-      if (hexString.length % 2 == 1) {
-        hexString = hexString + '0';
-      }
+      if (hexString.length % 2 === 1) hexString = hexString + '0';
       for (var i = 0; i < hexString.length; i += 2) {
         result.push(parseInt(hexString.substr(i, 2), 16));
       }
@@ -507,11 +1179,38 @@ const {Float16Array} = float16;
     render();
   }
 
+  // ── Initialize standard formats ────────────────────────────
   load(new Float16Array([Math.PI]), 5, document.getElementById('input16'), document.getElementById('output16'), document.getElementById('help16'), document.getElementById('hex16'));
   load(new Float32Array([Math.PI]), 8, document.getElementById('input32'), document.getElementById('output32'), document.getElementById('help32'), document.getElementById('hex32'));
   load(new Float64Array([Math.PI]), 11, document.getElementById('input64'), document.getElementById('output64'), document.getElementById('help64'), document.getElementById('hex64'));
 
-  // 辅助函数：将数值转换为 bfloat16 的字节
+  // ── Initialize custom formats ──────────────────────────────
+  // FP8-E4M3: 1-byte format, 1 sign, 4 exp (bias=7), 3 mantissa
+  loadCustom(new Uint8Array([numberToFp8E4M3(Math.PI)]), 4,
+    document.getElementById('inputFP8E4M3'), document.getElementById('outputFP8E4M3'),
+    document.getElementById('helpFP8E4M3'), document.getElementById('hexFP8E4M3'), 'fp8e4m3');
+
+  // FP8-E5M2: 1-byte format, 1 sign, 5 exp (bias=15), 2 mantissa
+  loadCustom(new Uint8Array([numberToFp8E5M2(Math.PI)]), 5,
+    document.getElementById('inputFP8E5M2'), document.getElementById('outputFP8E5M2'),
+    document.getElementById('helpFP8E5M2'), document.getElementById('hexFP8E5M2'), 'fp8e5m2');
+
+  // FP4: 1-byte format containing two FP4 E2M1 values (high nibble = first element)
+  var fp4Hi = numberToFp4E2M1(Math.PI);
+  var fp4Lo = numberToFp4E2M1(Math.E);
+  loadCustom(new Uint8Array([(fp4Hi << 4) | fp4Lo]), 2,
+    document.getElementById('inputFP4'), document.getElementById('outputFP4'),
+    document.getElementById('helpFP4'), document.getElementById('hexFP4'), 'fp4');
+
+  // MXFP4: 2 bytes = [E8M0_scale, 2xFP4_elements]
+  var mxfp4Scale = numberToE8M0(2); // scale = 2
+  var mxfp4Elem1 = numberToFp4E2M1(1.5); // ~1.5 * 2 = ~3
+  var mxfp4Elem2 = numberToFp4E2M1(0.75); // ~0.75 * 2 = ~1.5
+  loadCustom(new Uint8Array([mxfp4Scale, (mxfp4Elem1 << 4) | mxfp4Elem2]), 2,
+    document.getElementById('inputMXFP4'), document.getElementById('outputMXFP4'),
+    document.getElementById('helpMXFP4'), document.getElementById('hexMXFP4'), 'mxfp4');
+
+  // ── bfloat16 ──────────────────────────────────────────────
   function toBfloat16Bytes(x) {
     var float32 = new Float32Array(1);
     float32[0] = x;
@@ -520,14 +1219,13 @@ const {Float16Array} = float16;
     return new Uint8Array([(high16 >> 8) & 0xFF, high16 & 0xFF]);
   }
 
-  // 初始化 bfloat16 的初始值
   var initialBF16Bytes = toBfloat16Bytes(Math.PI);
   var initialBF16 = new Uint16Array(1);
   initialBF16[0] = (initialBF16Bytes[0] << 8) | initialBF16Bytes[1];
 
-  // 修改后的 load 调用部分
   load(initialBF16, 8, document.getElementById('inputBF16'), document.getElementById('outputBF16'), document.getElementById('helpBF16'), document.getElementById('hexBF16'));
 
 })();
 
 </script>
+</html>
